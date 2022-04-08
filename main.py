@@ -1,7 +1,8 @@
 import numpy as np
 from cv2 import cv2
 import math
-
+import time
+from otsu_processor import OtsuProcessor
 
 def scale(original_img, new_h, new_w):
 
@@ -46,110 +47,16 @@ def scale(original_img, new_h, new_w):
     return resized.astype(np.uint8)
 
 
-def grayscale_image(image):
-    grayscaled = np.zeros(image.shape)
-    x_size = image.shape[0]
-    y_size = image.shape[1]
-
-    for x in range(x_size):
-        for y in range(y_size):
-            gray = np.floor(image[x][y][0] * 0.299 + image[x][y][1] * 0.587 + image[x][y][2] * 0.114)
-            grayscaled[x][y][0] = gray
-            grayscaled[x][y][1] = gray
-            grayscaled[x][y][2] = gray
-
-    return grayscaled.astype(np.uint8)
-
-
-def calculate_otsu_threshold(image):
-    hist = np.array(calculate_hist(image, 0))
-    within = []
-    for i in range(len(hist)):
-        x, y = np.split(hist, [i])
-        w0 = np.sum(x) / (image.shape[0]*image.shape[1])
-        w1 = 1 - w0
-
-        u0 = np.sum([j*(t / (image.shape[0]*image.shape[1])) for j, t in enumerate(x)]) / w0
-        u1 = np.sum([j*(t / (image.shape[0]*image.shape[1])) for j, t in enumerate(y)]) / w1
-
-        q1 = np.sum([((j-u0)**2) * (t / (image.shape[0]*image.shape[1])) for j, t in enumerate(x)]) / w0
-        q2 = np.sum([((j-u1)**2) * (t / (image.shape[0]*image.shape[1])) for j, t in enumerate(y)]) / w1
-        res = w0*q1 + w1*q2
-        if math.isnan(res):
-            res = np.inf
-        within.append(res)
-
-    m = np.argmin(within)
-
-    return m
-
-
-def apply_threshold(image, threshold, maxval, minval):
-    for i in range(len(image)):
-        for j in range(len(image[i])):
-            if image[i][j][0] > threshold:
-                image[i][j][0] = maxval[0]
-                image[i][j][1] = maxval[1]
-                image[i][j][2] = maxval[2]
-            else:
-                image[i][j][0] = minval[0]
-                image[i][j][1] = minval[1]
-                image[i][j][2] = minval[2]
-    return image
-
-
-def calculate_hist(image, channel):
-    hist = np.zeros(256, dtype=int)
-
-    for i in range(len(image)):
-        for j in range(len(image[i])):
-            hist[image[i][j][channel]] += 1
-
-    return hist
-
-
-def blur(image, sigma, size):
-    width, height, channels = image.shape
-    blurred = np.zeros(image.shape)
-    size = size // 2
-    for x in range(width):
-        for y in range(height):
-            for c in range(channels):
-                total = 0
-                for i in range(x - size, min(x + size, width)):
-                    if i < 0:
-                        continue
-                    for j in range(y - size, min(y + size, height)):
-                        if j < 0:
-                            continue
-                        gauss_val = gauss_func(x - i, y - j, sigma)
-                        total += image[i][j][c] * gauss_val
-                blurred[x][y][c] = total
-
-    return blurred.astype(np.uint8)
-
-
-def gauss_func(x, y, sigma):
-    e = np.e**(-((x**2 + y**2) / (2 * sigma**2)))
-    main = 1 / (2 * np.pi * sigma**2)
-    return main * e
-
-
 if __name__ == '__main__':
-    image_path = "C:/Users/Light/Pictures/kind0.png"
-    image = cv2.imread(image_path)
-    image = np.array(image)
+    image_path = "C:/Users/Light/Pictures/test6.jpg"
     scale_factor_x = 400
     scale_factor_y = 400
     sigma = 1.2
     gauss_blur_size = 5
     max_thresh = [255, 255, 255]
     min_thresh = [0, 0, 0]
-    #image = scale(image, scale_factor_x, scale_factor_y)
-    #image = blur(image, sigma, gauss_blur_size)
-    image = grayscale_image(image)
-    threshold = calculate_otsu_threshold(image)
-    image = apply_threshold(image, threshold, max_thresh, min_thresh)
+    proc = OtsuProcessor(scale_factor_x, scale_factor_y, sigma, gauss_blur_size, max_thresh, min_thresh)
+    image = proc.process_image(image_path, 40)
     cv2.imshow("Test1", image)
     cv2.waitKey(0)
 
