@@ -7,100 +7,32 @@ from multiprocessing import Process, Array
 
 class OtsuProcessor:
 
-    def __init__(self, scale_factor_x, scale_factor_y, sigma, gauss_size, max_thresh, min_thresh):
-        self.scale_factor_x = scale_factor_x
-        self.scale_factor_y = scale_factor_y
-        self.sigma = sigma
-        self.gauss_size = gauss_size
+    def __init__(self, image_path, proprocessor, max_thresh, min_thresh):
         self.max_thresh = max_thresh
         self.min_thresh = min_thresh
-
-    def reset_scale_factors(self, scale_factor_x, scale_factor_y):
-        self.scale_factor_x = scale_factor_x
-        self.scale_factor_y = scale_factor_y
-
-    def reset_gauss_blur_params(self, sigma, gauss_size):
-        self.sigma = sigma
-        self.gauss_size = gauss_size
+        self.path = image_path
+        self.proprocessor = proprocessor
 
     def reset_threshold_params(self, max_thresh, min_thresh):
         self.max_thresh = max_thresh
         self.min_thresh = min_thresh
 
-    def process_image(self, path, max_threads_count):
-        image = np.array(cv2.imread(path))
-        self.width, self.height, self.channels = image.shape
-        image = self.grayscale(image)
-        image = Array('i', image.reshape(image.shape[0] * image.shape[1] * 3), lock=False)
+    def reset_image(self, image_path):
+        self.path = image_path
 
-        image, hist = self.blur_hist_calculation(image, 40)
-        threshold = self.calculate_otsu_threshold(10, hist)
-        image = self.apply_threshold(image, threshold, 5)
+    def process_image(self, threads_count, with_preprocessing=True, test_hist=None):
+        image = np.array(cv2.imread(self.path))
+        self.width, self.height, self.channels = image.shape
+        if with_preprocessing:
+            image, hist = self.proprocessor.prepare_image(image, threads_count)
+        else:
+            hist = test_hist
+            image = Array('i', image.reshape(image.shape[0] * image.shape[1] * 3), lock=False)
+        threshold = self.calculate_otsu_threshold(threads_count, hist)
+        image = self.apply_threshold(image, threshold, threads_count)
 
         image = np.array(image[:]).reshape(self.width, self.height, 3)
         return image.astype(np.uint8)
-
-    def grayscale(self, image):
-        grayscaled = np.zeros(image.shape)
-        x_size = image.shape[0]
-        y_size = image.shape[1]
-
-        for x in range(x_size):
-            for y in range(y_size):
-                gray = np.floor(image[x][y][0] * 0.299 + image[x][y][1] * 0.587 + image[x][y][2] * 0.114)
-                grayscaled[x][y][0] = gray
-                grayscaled[x][y][1] = gray
-                grayscaled[x][y][2] = gray
-
-        return grayscaled.astype(np.uint8)
-
-    def blur_hist_calculation(self, image, threads_count):
-        hist = Array('i', np.zeros(256, dtype=int), lock=False)
-        blurred = Array('i', np.zeros(self.width * self.height * self.channels, dtype=int), lock=False)
-        size = self.gauss_size // 2
-        rows_per_thread = int(self.width / threads_count)
-        x = 0
-        threads = []
-        while True:
-            if x + rows_per_thread >= self.width:
-                end = x + rows_per_thread
-                thread = Process(target=self.blur_thread, args=(blurred, image, size, self.sigma, x, end - abs(end - self.width), self.width, self.height, hist))
-                thread.start()
-                threads.append(thread)
-                break
-            thread = Process(target=self.blur_thread, args=(blurred, image, size, self.sigma, x, x + rows_per_thread, self.width, self.height, hist))
-            thread.start()
-            threads.append(thread)
-            x += rows_per_thread
-
-        for thread in threads:
-            thread.join()
-
-        return blurred, hist
-
-    def blur_thread(self, blurred, original, kernel, sigma, start, end, width, height, hist):
-
-        for x in range(start, end):
-            for y in range(height):
-                for c in range(3):
-                    total = 0
-                    for i in range(x - kernel, min(x + kernel, width)):
-                        if i < 0:
-                            continue
-                        for j in range(y - kernel, min(y + kernel, height)):
-                            if j < 0:
-                                continue
-                            gauss_val = self.gauss_func(x - i, y - j, sigma)
-                            total += original[(i * height + j) * 3 + c] * gauss_val
-                    blurred[(x * height + y) * 3 + c] = int(total)
-
-                index = (x * height + y) * 3
-                hist[blurred[index]] += 1
-
-    def gauss_func(self, x, y, sigma):
-        e = np.e ** (-((x ** 2 + y ** 2) / (2 * sigma ** 2)))
-        main = 1 / (2 * np.pi * sigma ** 2)
-        return main * e
 
     def otsu_thread(self, hist, start_i, end_i, within, image_pixels):
         for i in range(start_i, end_i):
